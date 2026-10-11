@@ -238,9 +238,12 @@ if whatsapp_file is not None:
         
         df_group = df_group.sort_values(by="Sefer Başı Ortalama Kâr (TL)", ascending=False)
         
-        st.dataframe(df_group[["Güzergah Hat Değeri", "Sefer_Sayisi", "Toplam_Ciro", "Net Bırakılan Kâr (TL)", "Sefer Başı Ortalama Kâr (TL)"]], use_container_width=True)
+        st.dataframe(df_group[[
+            "Güzergah Hat Değeri", "Sefer_Sayisi", "Toplam_Ciro", "Net Bırakılan Kâr (TL)", "Sefer Başı Ortalama Kâr (TL)"
+        ]], use_container_width=True)
 
         # --- SEFER SEFER DETAY TABLOSU ---
         st.subheader("📋 Sefer Sefer Detaylı Trafik ve Tüketim Analiz Listesi")
-        st.dataframe(df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Trafik Durumu", "Hesaplanan Tüketim (Litre)", "Şoför Primi (TL)", "Sefer Cirosu (TL)"]], use_container_width=True, height=500)
-    else:
+        st.dataframe(
+            df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Trafik Durumu", "Hesaplanan Tüketim (Litre)", "Şoför Primi (TL)", "Sefer Cirosu (TL)"]],
+            use_container_width=True,
