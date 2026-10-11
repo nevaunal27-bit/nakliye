@@ -29,6 +29,15 @@ def is_normal_hour(dt):
         return datetime.time(8, 0) <= dt.time() <= datetime.time(13, 0)
     return False
 
+def get_custom_operational_week(dt):
+    """Pazartesi 08:00 ile bir sonraki Pazar 08:00 arasını net tarih aralığı yapar."""
+    monday = dt - datetime.timedelta(days=dt.weekday())
+    monday_08 = datetime.datetime.combine(monday.date(), datetime.time(8, 0))
+    if dt < monday_08:
+        monday_08 = monday_08 - datetime.timedelta(days=7)
+    sunday_08_end = monday_08 + datetime.timedelta(days=6)
+    return f"{monday_08.strftime('%d.%m.%Y')} - {sunday_08_end.strftime('%d.%m.%Y')}"
+
 def parse_single_source(text_content, force_driver=None):
     seferler = []
     satirlar = text_content.replace("\x00", "").replace("\ufeff", "").split("\n")
@@ -43,10 +52,8 @@ def parse_single_source(text_content, force_driver=None):
             if k in satir.lower():
                 son_depo = k
                 break
-        if "boş" in satir.lower(): 
-            son_yuk = "boş"
-        elif "dolu" in satir.lower() or "dolusu" in satir.lower(): 
-            son_yuk = "dolu"
+        if "boş" in satir.lower(): son_yuk = "boş"
+        elif "dolu" in satir.lower() or "dolusu" in satir.lower(): son_yuk = "dolu"
 
         if not any(x in satir.lower() for x in ["<medya", "görsel", "teslim", "edildi", "ettim"]):
             continue
@@ -76,7 +83,7 @@ def parse_single_source(text_content, force_driver=None):
 
         seferler.append({
             "Şoför": dr, "dt_obj": dt, "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
-            "Hafta": f"{(dt - datetime.timedelta(days=dt.weekday())).strftime('%d/%m')} Haftası",
+            "Hafta": get_custom_operational_week(dt),
             "Güzergah": f_key.upper().replace("_", " "), "KM": km, "Litre": liters,
             "Prim": 250.0 if is_normal_hour(dt) else 500.0, "Ciro": matrah * (1 + KDV_ORANI), "Depo_Kodu": son_depo
         })
@@ -118,7 +125,9 @@ if dfs:
             else:
                 bk_km.append(0.0); bk_l.append(0.0); bk_note.append("Şoför Değişimi")
         df["Boş_KM"], df["Boş_Litre"], df["Not"] = bk_km, bk_l, bk_note
-        df["Litre"] = df["Litre"] + df["Boş_Litre"]
+        
+        # Gerçek sefer kârlılığını görmek için toplam yakıt hanesine sal kasa boş dönüş litresini ekle
+        df["Toplam_Litre"] = df["Litre"] + df["Boş_Litre"]
 
         günler = max(1, (df["dt_obj"].max() - df["dt_obj"].min()).days)
         gider_payi = gün_gideri * günler
@@ -136,9 +145,12 @@ if dfs:
         with t1:
             st.dataframe(df.pivot_table(index="Hafta", columns="Şoför", values="Prim", aggfunc="sum").fillna(0), use_container_width=True)
         with t2:
-            g = df.groupby("Güzergah").agg(Sefer=("Şoför", "count"), Ciro=("Ciro", "sum"), Prim=("Prim", "sum"), L=("Litre", "sum")).reset_index()
+            # KRİTİK GÜNCELLEME: Güzergah analizinde toplam yakıt (sefer + sal kasa dönüşü) baz alındı
+            g = df.groupby("Güzergah").agg(Sefer=("Şoför", "count"), Ciro=("Ciro", "sum"), Prim=("Prim", "sum"), L=("Toplam_Litre", "sum")).reset_index()
             g["Net_Kar"] = g["Ciro"] - g["Prim"] - (g["L"] * litre_fiyat)
             g["Sefer_Başı_Kar"] = g["Net_Kar"] / g["Sefer"]
             st.dataframe(g.sort_values("Sefer_Başı_Kar", ascending=False), use_container_width=True)
         with t3:
             st.dataframe(df[["Şoför", "Tarih / Saat", "Güzergah", "Boş_KM", "Boş_Litre", "Litre", "Not", "Ciro"]], use_container_width=True, height=500)
+    else:
+        st.error("Yüklenen dosyalarda geçerli bir nakliye güzergahı bulunamadı.")
