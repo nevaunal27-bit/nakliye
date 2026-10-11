@@ -43,8 +43,10 @@ def parse_single_source(text_content, force_driver=None):
             if k in satir.lower():
                 son_depo = k
                 break
-        if "boş" in satir.lower(): son_yuk = "boş"
-        elif "dolu" in satir.lower() or "dolusu" in satir_lower: son_yuk = "dolu"
+        if "boş" in satir.lower(): 
+            son_yuk = "boş"
+        elif "dolu" in satir.lower() or "dolusu" in satir.lower(): 
+            son_yuk = "dolu"
 
         if not any(x in satir.lower() for x in ["<medya", "görsel", "teslim", "edildi", "ettim"]):
             continue
@@ -128,7 +130,7 @@ if dfs:
         c1.metric("Toplam Ciro (KDV Dahil)", f"{ciro:,.2f} TL")
         c2.metric("Toplam Şoför Primleri", f"{prim:,.2f} TL")
         col3.metric("Gerçek Yakıt Maliyeti", f"{yakit:,.2f} TL", f"{alinan_litre - kalan_litre} L Harcandı")
-        c4.metric("Şirket Net Kârı", f"{net_sirket_kari := net_kar:,.2f} TL", f"{günler} Günlük Sabit Gider Düşüldü")
+        c4.metric("Şirket Net Kârı", f"{net_kar:,.2f} TL", f"{günler} Günlük Sabit Gider Düşüldü")
 
         t1, t2, t3 = st.tabs(["💵 Haftalık Primler", "🎯 Güzergah Kârlılığı", "📋 Sefer Detayları"])
         with t1:
