@@ -168,7 +168,7 @@ def parse_whatsapp_smart_analytics_v6(text_content):
 # --- STREAMLIT PC PANEL TASARIMI ---
 st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
 st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
-st.caption("Aktif 2 Araç Üzerinden Günlük Hassas Gider Hesaplama Sistemi")
+st.caption("2 Aktif Araç Üzerinden Gün Bazlı Gider Dağılımlı Lojistik Yönetim Paneli")
 
 st.sidebar.header("⛽ Hassas Yakıt Girişleri")
 manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=86.50)
@@ -247,4 +247,3 @@ if whatsapp_file is not None:
         st.dataframe(
             df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Trafik Durumu", "Hesaplanan Tüketim (Litre)", "Şoför Primi (TL)", "Sefer Cirosu (TL)"]],
             use_container_width=True,
-            height=500  
