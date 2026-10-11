@@ -168,17 +168,14 @@ def parse_whatsapp_smart_analytics_v6(text_content):
 # --- STREAMLIT PC PANEL TASARIMI ---
 st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
 st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
-st.caption("Aktif 2 Araç Üzerinden Günlük Hassas Maliyet ve Gider Hesaplama Sistemi")
+st.caption("Aktif 2 Araç Üzerinden Günlük Hassas Gider Hesaplama Sistemi")
 
-# Güncel Giriş Değerleriniz
 st.sidebar.header("⛽ Hassas Yakıt Girişleri")
 manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=86.50)
 manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot (Litre)", min_value=0.0, value=979.0)
 depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
 
 # --- ARAÇ BAŞI YENİ SABIT GIDER HESAPLAMA MOTORU ---
-# Yıllık Giderler: Zorunlu Sigorta (82.000) + Tahmini Sanayi (200.000) = 282.000 TL Yıllık / 365 Gün = 772.60 TL Günlük
-# Aylık Giderler: Maaş (42.000) + SGK (12.000) = 54.000 TL Aylık / 30 Gün = 1800.00 TL Günlük
 GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
 AKTIF_ARAC_SAYISI = 2
 TOPLAM_SIRKET_GUNLUK_GIDERI = GUNLUK_SABIT_GIDER_PER_ARAC * AKTIF_ARAC_SAYISI
@@ -186,7 +183,7 @@ TOPLAM_SIRKET_GUNLUK_GIDERI = GUNLUK_SABIT_GIDER_PER_ARAC * AKTIF_ARAC_SAYISI
 st.sidebar.markdown("---")
 st.sidebar.subheader("📅 Gün Bazlı Gider Bilgisi")
 st.sidebar.write(f"Araç Başı Günlük Gider: **{GUNLUK_SABIT_GIDER_PER_ARAC:,.2f} TL**")
-st.sidebar.write(f"2 Araç Toplam Günlük Gider: **{TOPLAM_SIRKET_GUNLUK_GIDER_TUTARI := TOPLAM_SIRKET_GUNLUK_GIDERI}:,.2f} TL**")
+st.sidebar.write(f"2 Araç Toplam Günlük Gider: **{TOPLAM_SIRKET_GUNLUK_GIDERI:,.2f} TL**")
 st.sidebar.caption("*(Sigorta, Sanayi, Maaş ve SGK kalemlerinin güne vurulmuş net halidir)*")
 
 whatsapp_file = st.file_uploader("WhatsApp .txt Sohbet Dosyasını Sürükleyip Bırakın", type=["txt"])
@@ -206,7 +203,7 @@ if whatsapp_file is not None:
         if gun_sayisi < 1: 
             gun_sayisi = 1  
             
-        # Toplam Dönemlik Sabit Gider = Günlük Gider * Dökümdeki Gün Sayısı
+        # Toplam Dönemlik Sabit Gider Payı
         donemlik_sabit_gider_payi = TOPLAM_SIRKET_GUNLUK_GIDERI * gun_sayisi
 
         # --- ÜST ÖZET FINANSAL KARTLAR ---
@@ -245,3 +242,9 @@ if whatsapp_file is not None:
             "Güzergah Hat Değeri", "Sefer_Sayisi", "Toplam_Ciro", "Net Bırakılan Kâr (TL)", "Sefer Başı Ortalama Kâr (TL)"
         ]], use_container_width=True)
 
+        # --- SEFER SEFER DETAY TABLOSU ---
+        st.subheader("📋 Sefer Sefer Detaylı Trafik ve Tüketim Analiz Listesi")
+        st.dataframe(
+            df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Trafik Durumu", "Hesaplanan Tüketim (Litre)", "Şoför Primi (TL)", "Sefer Cirosu (TL)"]],
+            use_container_width=True,
+            height=500  
