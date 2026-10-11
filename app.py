@@ -59,7 +59,6 @@ def calculate_real_consumption(distance, is_loaded, dt):
     return distance * base_rate * traffic_multiplier
 
 def is_normal_hour(dt: datetime.datetime) -> bool:
-    """Haftaiçi 08-18, Cmt 08-13 arası normal prim (250 TL), diğer saatler çift (500 TL)."""
     weekday = dt.weekday()
     time_of_day = dt.time()
     if 0 <= weekday <= 4:
@@ -69,7 +68,6 @@ def is_normal_hour(dt: datetime.datetime) -> bool:
     return False
 
 def get_custom_operational_week(dt):
-    """Pazartesi 08:00 ile bir sonraki Pazar 08:00 arasını lojistik haftası kabul eder."""
     monday = dt - datetime.timedelta(days=dt.weekday())
     monday_08 = datetime.datetime.combine(monday.date(), datetime.time(8, 0))
     if dt < monday_08:
@@ -77,15 +75,14 @@ def get_custom_operational_week(dt):
     sunday_08_end = monday_08 + datetime.timedelta(days=6)
     return f"{monday_08.strftime('%d/%m')} ➡️ {sunday_08_end.strftime('%d/%m')} Haftası"
 
-def parse_whatsapp_smart_analytics_v6(text_content):
+def parse_single_source(text_content, force_driver=None):
+    """Herhangi bir metin dökümünü esnek şekilde okur ve analiz listesine çevirir."""
     seferler_list = []
     text_content = text_content.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
     satirlar = text_content.split("\n")
 
     son_depo_tahmini = "gts"
     son_yuk_durumu = "dolu"
-    
-    son_sefer_zamani = {"Önal": None, "Salih": None, "Hasib": None}
 
     for satir in satirlar:
         satir = satir.strip()
@@ -93,7 +90,6 @@ def parse_whatsapp_smart_analytics_v6(text_content):
             continue
 
         satir_lower = satir.lower()
-
         if "soda" in satir_lower:
             continue
 
@@ -117,11 +113,15 @@ def parse_whatsapp_smart_analytics_v6(text_content):
         except:
             continue
 
-        sender_lower = sender_part.lower()
-        driver_name = ""
-        if "önal" in sender_lower or "ünal" in sender_lower: driver_name = "Önal"
-        elif "salih" in sender_lower: driver_name = "Salih"
-        elif "hasib" in sender_lower or "selahattin" in sender_lower: driver_name = "Hasib"
+        # Eğer şahsi sohbet dökümüyse kimin yazdığını zorunlu kılabiliriz
+        if force_driver:
+            driver_name = force_driver
+        else:
+            sender_lower = sender_part.lower()
+            driver_name = ""
+            if "önal" in sender_lower or "ünal" in sender_lower: driver_name = "Önal"
+            elif "salih" in sender_lower: driver_name = "Salih"
+            elif "hasib" in sender_lower or "selahattin" in sender_lower: driver_name = "Hasib"
 
         if not driver_name:
             continue
@@ -132,15 +132,7 @@ def parse_whatsapp_smart_analytics_v6(text_content):
         except:
             continue
 
-        if son_sefer_zamani[driver_name] is not None:
-            dakika_farki = (dt - son_sefer_zamani[driver_name]).total_seconds() / 60
-            if dakika_farki < 60:
-                continue
-
-        son_sefer_zamani[driver_name] = dt
-
         fiyat_key = f"{son_depo_tahmini}_{son_yuk_durumu}"
-        
         if "kahraman" in satir_lower and "boş" in satir_lower: fiyat_key = "kahramanli_ardep_boş"
         elif "ardep" in satir_lower and "gts" in satir_lower and "emanet" in satir_lower: fiyat_key = "ardep_gts_emanet_dolu"
         elif "ardep" in satir_lower and "emanet" in satir_lower: fiyat_key = "ardep_emanet_dolu"
@@ -178,7 +170,7 @@ def parse_whatsapp_smart_analytics_v6(text_content):
 # --- STREAMLIT PC PANEL TASARIMI ---
 st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
 st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
-st.caption("2 Aktif Araç Üzerinden Gün Bazlı Gider Dağılımlı Lojistik Yönetim Paneli")
+st.caption("3 Kanallı Teyitli Akıllı Veri Okuma Paneli")
 
 st.sidebar.header("⛽ Hassas Yakıt Girişleri")
 manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=86.50)
@@ -189,7 +181,6 @@ st.sidebar.markdown("---")
 st.sidebar.header("🚛 Filo Gider Ayarları")
 aktif_arac_sayisi = st.sidebar.number_input("Şu Anda Aktif Çalışan Tır Sayısı", min_value=1, max_value=3, value=2)
 
-# --- ARAÇ BAŞI SABIT GIDER HESAPLAMA MOTORU ---
 GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
 TOPLAM_SIRKET_GUNLUK_GIDERI = GUNLUK_SABIT_GIDER_PER_ARAC * aktif_arac_sayisi
 
@@ -197,22 +188,59 @@ st.sidebar.subheader("📅 Gün Bazlı Gider Bilgisi")
 st.sidebar.write(f"Araç Başı Günlük Gider: **{GUNLUK_SABIT_GIDER_PER_ARAC:,.2f} TL**")
 st.sidebar.write(f"{aktif_arac_sayisi} Araç Toplam Günlük Gider: **{TOPLAM_SIRKET_GUNLUK_GIDERI:,.2f} TL**")
 
-whatsapp_file = st.file_uploader("WhatsApp .txt Sohbet Dosyasını Sürükleyip Bırakın", type=["txt"])
+st.subheader("📂 Akıllı Veri Giriş Kaynakları (3 Farklı Kanal)")
+col_a, colb, colc = st.columns(3)
 
-if whatsapp_file is not None:
-    chat_text = whatsapp_file.read().decode("utf-8", errors="ignore")
-    df = parse_whatsapp_smart_analytics_v6(chat_text)
+with col_a:
+    grup_file = st.file_uploader("1. Ana Lojistik Grubu Dökümü (.txt)", type=["txt"], key="src_grup")
+with colb:
+    salih_file = st.file_uploader("2. Şoför Salih Özel Sohbeti (.txt)", type=["txt"], key="src_salih")
+with colc:
+    onal_file = st.file_uploader("3. Şoför Önal Özel Sohbeti (.txt)", type=["txt"], key="src_onal")
 
-    if not df.empty:
-        st.success("✅ Analiz Başarılı! Net liman aktarma seferleri kuruşu kuruşuna hesaplandı.")
+all_dataframes = []
+
+if grup_file is not None:
+    all_dataframes.append(parse_single_source(grup_file.read().decode("utf-8", errors="ignore")))
+if salih_file is not None:
+    all_dataframes.append(parse_single_source(salih_file.read().decode("utf-8", errors="ignore"), force_driver="Salih"))
+if onal_file is not None:
+    all_dataframes.append(parse_single_source(onal_file.read().decode("utf-8", errors="ignore"), force_driver="Önal"))
+
+if all_dataframes:
+    # Tüm kaynakları birleştir
+    df_combined = pd.concat(all_dataframes, ignore_index=True)
+    
+    if not df_combined.empty:
+        # --- AKILLI MÜKERRER TEMİZLEME MOTORU ---
+        # Aynı şoförün 60 dakika (1 saat) içindeki tüm kayıtlarını (ister gruptan ister özelden gelsin) TEK SEFER sayar
+        df_combined = df_combined.sort_values(by=["Şoför", "dt_object"]).reset_index(drop=True)
+        
+        filtered_rows = []
+        son_sefer_zamani = {"Önal": None, "Salih": None, "Hasib": None}
+        
+        for idx, row in df_combined.iterrows():
+            d_name = row["Şoför"]
+            dt_curr = row["dt_object"]
+            
+            if son_sefer_zamani[d_name] is not None:
+                diff_minutes = (dt_curr - son_sefer_zamani[d_name]).total_seconds() / 60
+                if diff_minutes < 60:
+                    continue
+                    
+            son_sefer_zamani[d_name] = dt_curr
+            filtered_rows.append(row)
+            
+        df = pd.DataFrame(filtered_rows)
+        
+        st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi ve {len(df)} adet net benzersiz sefer listelendi.")
 
         # --- DÖNEM GÜN SAYISI BULMA ---
         df["dt_object"] = pd.to_datetime(df["dt_object"])
         min_date = df["dt_object"].min()
         max_date = df["dt_object"].max()
         gun_sayisi = (max_date - min_date).days
-        if gun_sayisi < 1: 
-            gun_sayisi = 1  
+        if gun_sayisi < 1: gun_sayisi = 1  
             
         donemlik_sabit_gider_payi = TOPLAM_SIRKET_GUNLUK_GIDERI * gun_sayisi
 
@@ -222,28 +250,6 @@ if whatsapp_file is not None:
         
         gercek_tuketilen_yakit = manuel_alinan_litre - depodaki_mevcut_litre
         gercek_yakit_maliyeti = gercek_tuketilen_yakit * manuel_litre_fiyati
-        
         net_sirket_kari = total_ciro - total_prim - gercek_yakit_maliyeti - donemlik_sabit_gider_payi
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Toplam Brüt Ciro (KDV Dahil)", f"{total_ciro:,.2f} TL")
-        col2.metric("Toplam Şoför Primleri", f"{total_prim:,.2f} TL")
-        col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
-        col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
-
-        # --- HAFTALIK ŞOFÖR PRİM TAKİP EKRANI ---
-        st.subheader("💵 Haftalık Şoför Prim Takip Ekranı")
-        df["Şoför Primi (TL)"] = df["Şoför Primi (TL)"].astype(float)
-        df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
-        st.dataframe(df_weekly_pivot, use_container_width=True)
-
-        # --- GÜZERGAH KÂRLILIK KARNESİ ---
-        st.subheader("🎯 Güzergah Bazlı Sefer Net Kâr Analizi")
-        df_group = df.groupby("Güzergah Hat Değeri").agg(
-            Sefer_Sayisi=("Şoför", "count"),
-            Toplam_Ciro=("Sefer Cirosu (TL)", "sum"),
-            Toplam_Prim=("Şoför Primi (TL)", "sum"),
-            Tahmini_Litre_Tuketimi=("Hesaplanan Tüketim (Litre)", "sum")
-        ).reset_index()
-        
-        df_group["Modellenen Yakıt Maliyeti (TL)"] = df_group["Tahmini_Litre_Tuketimi"] * manuel_litre_fiyati
