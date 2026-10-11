@@ -170,7 +170,7 @@ manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot
 depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
 
 st.sidebar.markdown("---")
-st.sidebar.header("Consultant Gider Ayarları")
+st.sidebar.header("🚛 Filo Gider Ayarları")
 aktif_arac_sayisi = st.sidebar.number_input("Şu Anda Aktif Çalışan Tır Sayısı", min_value=1, max_value=3, value=2)
 
 GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
@@ -246,7 +246,7 @@ if all_dataframes:
         col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
         col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
 
-        st.subheader("💵 Haftalık Şoför Prim Takip Ekranı")
-        df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
-        st.dataframe(df_weekly_pivot, use_container_width=True)
+        # --- YENİ SEKMELİ (TAB) TASARIM DÜZENİ ---
+        tab1, tab2, tab3 = st.tabs(["💵 Haftalık Şoför Primleri", "🎯 Güzergah Kârlılık Karnesi", "📋 Sefer Sefer Detay Listesi"])
 
+        with tab1:
