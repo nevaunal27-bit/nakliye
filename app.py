@@ -2,8 +2,10 @@ import datetime
 import pandas as pd
 import streamlit as st
 
+# --- SAF MERSİN LİMAN AKTARMA PARAMETRELERİ (KDV %16) ---
 KDV_ORANI = 0.16
 
+# 15 Eylül İtibariyle Geçerli Güncel Matrah Fiyat Listesi
 DEPO_FIYATLARI = {
     "ardep_dolu": 2000.0,
     "ardep_boş": 1900.0,
@@ -29,6 +31,7 @@ DEPO_FIYATLARI = {
     "oyak_depo_dolusu": 1700.0
 }
 
+# Güzergah Mesafe Verileri (A Noktası -> B Noktası Liman)
 DEPO_MESAFELERI = {
     "gts": 8.0,
     "ardep": 6.0,
@@ -43,6 +46,7 @@ DEPO_MESAFELERI = {
     "oyak": 12.0
 }
 
+# Şehiriçi Trafik ve Tonaj Tüketim Modellemesi
 BASE_CONSUMPTION_EMPTY = 0.38  
 BASE_CONSUMPTION_LOADED = 0.57  
 
@@ -160,11 +164,13 @@ def parse_single_source(text_content, force_driver=None):
 
     return pd.DataFrame(seferler_list)
 
+
+# --- STREAMLIT PC PANEL TASARIMI ---
 st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
 st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
 st.caption("3 Kanallı Teyitli Akıllı Veri Okuma Paneli")
 
-st.sidebar.header("⛽ Hassas Yakıt Girişleri")
+st.sidebar.header("Camp Yakıt Girişleri")
 manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=86.50)
 manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot (Litre)", min_value=0.0, value=979.0)
 depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
@@ -222,7 +228,7 @@ if all_dataframes:
             
         df = pd.DataFrame(filtered_rows)
         
-        st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi` ve {len(df)} adet net benzersiz sefer listelendi.")
+        st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi ve {len(df)} adet net benzersiz sefer listelendi.")
 
         df["dt_object"] = pd.to_datetime(df["dt_object"])
         min_date = df["dt_object"].min()
@@ -246,7 +252,3 @@ if all_dataframes:
         col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
         col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
 
-        tab1, tab2, tab3 = st.tabs(["💵 Haftalık Şoför Primleri", "🎯 Güzergah Kârlılık Karnesi", "📋 Sefer Sefer Detay Listesi"])
-
-        with tab1:
-            df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
