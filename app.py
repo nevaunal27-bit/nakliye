@@ -193,7 +193,7 @@ if whatsapp_file is not None:
     df = parse_whatsapp_smart_analytics_v6(chat_text)
 
     if not df.empty:
-        st.success(f"✅ Analiz Başarılı! {len(df)} adet net liman aktarma seferi kuruşu kuruşuna hesaplandı.")
+        st.success("✅ Analiz Başarılı! Net liman aktarma seferleri kuruşu kuruşuna hesaplandı.")
 
         # --- DÖNEM GÜN SAYISI BULMA VE SABİT GİDERİ GÜNLÜK PAYA ÇEVİRME ---
         df["dt_object"] = pd.to_datetime(df["dt_object"])
