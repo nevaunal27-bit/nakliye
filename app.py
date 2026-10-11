@@ -5,7 +5,7 @@ import streamlit as st
 # --- SAF MERSİN LİMAN AKTARMA PARAMETRELERİ (KDV %16) ---
 KDV_ORANI = 0.16
 
-# 15 Eylül İtibariyle Geçerli Güncel Matrah Fiyat Listesi (Görselden Birebir İşlenen)
+# 15 Eylül İtibariyle Geçerli Güncel Matrah Fiyat Listesi
 DEPO_FIYATLARI = {
     "ardep_dolu": 2000.0,
     "ardep_boş": 1900.0,
@@ -23,7 +23,7 @@ DEPO_FIYATLARI = {
     "ols_boş": 1900.0,
     "ciss_dolu": 2200.0,
     "ciss_boş": 1950.0,
-    "ccis_dolu": 2200.0,  # CISS ile aynı kabul edildi
+    "ccis_dolu": 2200.0,
     "ccis_boş": 1950.0,
     "sabanci_dolu": 2200.0,
     "sabanci_boş": 1950.0,
@@ -47,12 +47,11 @@ DEPO_MESAFELERI = {
 }
 
 # Şehiriçi Trafik ve Tonaj Tüketim Modellemesi
-BASE_CONSUMPTION_EMPTY = 0.38  # Boş/Yüksüz tır: KM başına 0.38 Litre
-BASE_CONSUMPTION_LOADED = 0.57  # Dolu tır (24-25 Ton Ağır Yük): KM başına 0.57 Litre
+BASE_CONSUMPTION_EMPTY = 0.38  
+BASE_CONSUMPTION_LOADED = 0.57  
 
 def calculate_real_consumption(distance, is_loaded, dt):
     base_rate = BASE_CONSUMPTION_LOADED if is_loaded else BASE_CONSUMPTION_EMPTY
-    # Gündüz dur-kalk ve rölanti liman sırası bekleme çarpanı (%45 fazla tüketim)
     if 8 <= dt.hour <= 18:
         traffic_multiplier = 1.45
     else:
@@ -69,7 +68,7 @@ def is_normal_hour(dt: datetime.datetime) -> bool:
         return datetime.time(8, 0) <= time_of_day <= datetime.time(13, 0)
     return False
 
-def parse_whatsapp_smart_analytics_v4(text_content):
+def parse_whatsapp_smart_analytics_v6(text_content):
     seferler_list = []
     text_content = text_content.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
     satirlar = text_content.split("\n")
@@ -86,11 +85,9 @@ def parse_whatsapp_smart_analytics_v4(text_content):
 
         satir_lower = satir.lower()
 
-        # Soda işlerini tamamen yoksay
         if "soda" in satir_lower:
             continue
 
-        # Akıllı Durum ve Depo Analizi
         for depo_anahtar in DEPO_MESAFELERI.keys():
             if depo_anahtar in satir_lower:
                 son_depo_tahmini = depo_anahtar
@@ -101,7 +98,6 @@ def parse_whatsapp_smart_analytics_v4(text_content):
         elif "dolu" in satir_lower or "dolusu" in satir_lower:
             son_yuk_durumu = "dolu"
 
-        # Resim veya hareket bildirimlerini yakala
         is_action = any(x in satir_lower for x in ["<medya dahil edilmedi>", "görsel", "teslim", "edildi", "ettim", "çıkış yaptım"])
         if not is_action:
             continue
@@ -127,7 +123,6 @@ def parse_whatsapp_smart_analytics_v4(text_content):
         except:
             continue
 
-        # Aynı şoförün 60 dakika içindeki mükerrer mesajlarını/resimlerini tek sefer sayar
         if son_sefer_zamani[driver_name] is not None:
             dakika_farki = (dt - son_sefer_zamani[driver_name]).total_seconds() / 60
             if dakika_farki < 60:
@@ -135,20 +130,16 @@ def parse_whatsapp_smart_analytics_v4(text_content):
 
         son_sefer_zamani[driver_name] = dt
 
-        # Fiyat Listesi Anahtar Kombinasyon Eşleştirmesi
         fiyat_key = f"{son_depo_tahmini}_{son_yuk_durumu}"
         
-        # İstisnai Kombinasyon Çözümleri
         if "kahraman" in satir_lower and "boş" in satir_lower: fiyat_key = "kahramanli_ardep_boş"
         elif "ardep" in satir_lower and "gts" in satir_lower and "emanet" in satir_lower: fiyat_key = "ardep_gts_emanet_dolu"
         elif "ardep" in satir_lower and "emanet" in satir_lower: fiyat_key = "ardep_emanet_dolu"
         elif "oyak" in satir_lower: fiyat_key = "oyak_depo_dolusu"
 
-        # Eğer tam kombinasyon yoksa varsayılana dön
         if fiyat_key not in DEPO_FIYATLARI:
             fiyat_key = "gts_dolu"
 
-        # Hesaplamalar
         is_normal = is_normal_hour(dt)
         final_premium = 250 if is_normal else 500
         
@@ -161,7 +152,8 @@ def parse_whatsapp_smart_analytics_v4(text_content):
 
         seferler_list.append({
             "Şoför": driver_name,
-            "Tarih/Saat": dt,
+            "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
+            "dt_object": dt,
             "Güzergah Hat Değeri": fiyat_key.upper().replace("_", " "),
             "Mesafe (KM)": km,
             "Hesaplanan Tüketim (Litre)": round(harcanan_litre, 2),
@@ -176,31 +168,46 @@ def parse_whatsapp_smart_analytics_v4(text_content):
 # --- STREAMLIT PC PANEL TASARIMI ---
 st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
 st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
-st.caption("Güncel 15 Eylül Fiyat Tarifesi ve Kesinleşmiş Ciro Endeks Modeli")
+st.caption("Aktif 2 Araç Üzerinden Günlük Hassas Maliyet ve Gider Hesaplama Sistemi")
 
-st.sidebar.header("⛽ Hassas Yakıt ve Depo Girişleri")
-manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=43.15)
-manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Toplam Mazot (Litre)", min_value=0.0, value=1200.0)
-depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Depolarda Kalan Toplam Yakıt (Litre)", min_value=0.0, value=150.0)
+# Güncel Giriş Değerleriniz
+st.sidebar.header("⛽ Hassas Yakıt Girişleri")
+manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=86.50)
+manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot (Litre)", min_value=0.0, value=979.0)
+depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
 
-# Sabit Giderler
-SABIT_SIGORTA_AYLIK = 82000 / 12
-SABIT_PERSONEL_AYLIK = 42000 + 12000
-SABIT_SANAYI_AYLIK = 600000 / 3 / 12
-TOPLAM_AYLIK_SABIT_GIDER_TIR_BASI = SABIT_SIGORTA_AYLIK + SABIT_PERSONEL_AYLIK + SABIT_SANAYI_AYLIK
+# --- ARAÇ BAŞI YENİ SABIT GIDER HESAPLAMA MOTORU ---
+# Yıllık Giderler: Zorunlu Sigorta (82.000) + Tahmini Sanayi (200.000) = 282.000 TL Yıllık / 365 Gün = 772.60 TL Günlük
+# Aylık Giderler: Maaş (42.000) + SGK (12.000) = 54.000 TL Aylık / 30 Gün = 1800.00 TL Günlük
+GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
+AKTIF_ARAC_SAYISI = 2
+TOPLAM_SIRKET_GUNLUK_GIDERI = GUNLUK_SABIT_GIDER_PER_ARAC * AKTIF_ARAC_SAYISI
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📅 Sabit Gider Payı")
-st.sidebar.write(f"3 Araç Toplam Aylık Gider: **{TOPLAM_AYLIK_SABIT_GIDER_TIR_BASI * 3:,.2f} TL**")
+st.sidebar.subheader("📅 Gün Bazlı Gider Bilgisi")
+st.sidebar.write(f"Araç Başı Günlük Gider: **{GUNLUK_SABIT_GIDER_PER_ARAC:,.2f} TL**")
+st.sidebar.write(f"2 Araç Toplam Günlük Gider: **{TOPLAM_SIRKET_GUNLUK_GIDER_TUTARI := TOPLAM_SIRKET_GUNLUK_GIDERI}:,.2f} TL**")
+st.sidebar.caption("*(Sigorta, Sanayi, Maaş ve SGK kalemlerinin güne vurulmuş net halidir)*")
 
 whatsapp_file = st.file_uploader("WhatsApp .txt Sohbet Dosyasını Sürükleyip Bırakın", type=["txt"])
 
 if whatsapp_file is not None:
     chat_text = whatsapp_file.read().decode("utf-8", errors="ignore")
-    df = parse_whatsapp_smart_analytics_v4(chat_text)
+    df = parse_whatsapp_smart_analytics_v6(chat_text)
 
     if not df.empty:
-        st.success(f"✅ Analiz Başarılı! {len(df)} adet net liman aktarma seferi, 15 Eylül fiyat listesiyle kuruşu kuruşuna hesaplandı.")
+        st.success(f"✅ Analiz Başarılı! {len(df)} adet net liman aktarma seferi kuruşu kuruşuna hesaplandı.")
+
+        # --- DÖNEM GÜN SAYISI BULMA VE SABİT GİDERİ GÜNLÜK PAYA ÇEVİRME ---
+        df["dt_object"] = pd.to_datetime(df["dt_object"])
+        min_date = df["dt_object"].min()
+        max_date = df["dt_object"].max()
+        gun_sayisi = (max_date - min_date).days
+        if gun_sayisi < 1: 
+            gun_sayisi = 1  
+            
+        # Toplam Dönemlik Sabit Gider = Günlük Gider * Dökümdeki Gün Sayısı
+        donemlik_sabit_gider_payi = TOPLAM_SIRKET_GUNLUK_GIDERI * gun_sayisi
 
         # --- ÜST ÖZET FINANSAL KARTLAR ---
         total_ciro = df["Sefer Cirosu (TL)"].sum()
@@ -208,13 +215,15 @@ if whatsapp_file is not None:
         
         gercek_tuketilen_yakit = manuel_alinan_litre - depodaki_mevcut_litre
         gercek_yakit_maliyeti = gercek_tuketilen_yakit * manuel_litre_fiyati
-        net_yol_kari = total_ciro - total_prim - gercek_yakit_maliyeti
+        
+        # Net Şirket Kârı Hesaplaması
+        net_sirket_kari = total_ciro - total_prim - gercek_yakit_maliyeti - donemlik_sabit_gider_payi
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Toplam Brüt Ciro (KDV Dahil)", f"{total_ciro:,.2f} TL")
         col2.metric("Toplam Şoför Primleri", f"{total_prim:,.2f} TL")
         col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
-        col4.metric("Net Yol Kârı", f"{net_yol_kari:,.2f} TL")
+        col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
 
         # --- GÜZERGAH KÂRLILIK KARNESİ ---
         st.subheader("🎯 Güzergah Bazlı Sefer Net Kâr Analizi")
@@ -235,13 +244,4 @@ if whatsapp_file is not None:
         st.dataframe(df_group[[
             "Güzergah Hat Değeri", "Sefer_Sayisi", "Toplam_Ciro", "Net Bırakılan Kâr (TL)", "Sefer Başı Ortalama Kâr (TL)"
         ]], use_container_width=True)
-        
-        # En karlı güzergah çıktısı
-        if not df_group.empty:
-            en_karli_rota = df_group.iloc[0]["Güzergah Hat Değeri"]
-            st.info(
-                f"🧠 **Yapay Zeka Stratejik Raporu:** 15 Eylül fiyat tarifesi ve Mersin şehiriçi trafik çarpanları analizine göre, "
-                f"operasyonunuzda sefer başına en yüksek net verimliliği ve nakit kârı **{en_karli_rota}** hattı sağlamaktadır."
-            )
 
-        st.subheader("📋 Sefer Sefer Detaylı Trafik ve Tüketim Analiz Listesi")
