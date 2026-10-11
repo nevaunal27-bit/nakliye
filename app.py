@@ -243,4 +243,3 @@ if whatsapp_file is not None:
         # --- SEFER SEFER DETAY TABLOSU ---
         st.subheader("📋 Sefer Sefer Detaylı Trafik ve Tüketim Analiz Listesi")
         st.dataframe(df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Trafik Durumu", "Hesaplanan Tüketim (Litre)", "Şoför Primi (TL)", "Sefer Cirosu (TL)"]], use_container_width=True, height=500)
-    else:
