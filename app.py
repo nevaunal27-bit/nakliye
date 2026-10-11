@@ -150,7 +150,7 @@ def parse_whatsapp_smart_analytics_v6(text_content):
             fiyat_key = "gts_dolu"
 
         is_normal = is_normal_hour(dt)
-        final_premium = 250 if is_normal else 500
+        final_premium = float(250 if is_normal else 500)
         
         km = DEPO_MESAFELERI.get(son_depo_tahmini, 8.0)
         is_loaded_bool = (son_yuk_durumu == "dolu")
@@ -233,8 +233,8 @@ if whatsapp_file is not None:
 
         # --- HAFTALIK ŞOFÖR PRİM TAKİP EKRANI ---
         st.subheader("💵 Haftalık Şoför Prim Takip Ekranı")
-        df_weekly = df.groupby(["Lojistik Haftası", "Şoför"]).agg({"Şoför Primi (TL)": "sum"}).reset_index()
-        df_weekly_pivot = df_weekly.pivot(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)").fillna(0)
+        df["Şoför Primi (TL)"] = df["Şoför Primi (TL)"].astype(float)
+        df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
         st.dataframe(df_weekly_pivot, use_container_width=True)
 
         # --- GÜZERGAH KÂRLILIK KARNESİ ---
