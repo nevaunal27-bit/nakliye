@@ -30,7 +30,6 @@ def is_normal_hour(dt):
     return False
 
 def get_custom_operational_week(dt):
-    """Pazartesi 08:00 ile bir sonraki Pazar 08:00 arasını net tarih aralığı yapar."""
     monday = dt - datetime.timedelta(days=dt.weekday())
     monday_08 = datetime.datetime.combine(monday.date(), datetime.time(8, 0))
     if dt < monday_08:
@@ -44,49 +43,77 @@ def parse_single_source(text_content, force_driver=None):
     son_depo, son_yuk = "gts", "dolu"
     son_zaman = {"Önal": None, "Salih": None, "Hasib": None}
 
+    # Soda tespit edilirse o şoförün o anki tüm hafızasını sıfırlamak için kilit mekanizması
+    soda_modu = {"Önal": False, "Salih": False, "Hasib": False}
+
     for satir in satirlar:
         satir = satir.strip()
-        if not satir or " - " not in satir or ":" not in satir or "soda" in satir.lower():
+        if not satir or " - " not in satir or ":" not in satir:
             continue
-        for k in DEPO_MESAFELERI.keys():
-            if k in satir.lower():
-                son_depo = k
-                break
-        if "boş" in satir.lower(): son_yuk = "boş"
-        elif "dolu" in satir.lower() or "dolusu" in satir.lower(): son_yuk = "dolu"
+        
+        satir_lower = satir.lower()
 
-        if not any(x in satir.lower() for x in ["<medya", "görsel", "teslim", "edildi", "ettim"]):
-            continue
         try:
             t_part, r_part = satir.split(" - ", 1)
-            s_part, _ = r_part.split(":", 1)
+            s_part, msg_part = r_part.split(":", 1)
+            msg_lower = msg_part.lower()
             dt = datetime.datetime.strptime(t_part.replace("[", "").replace("]", "").strip(), "%d.%m.%Y %H:%M")
         except:
             continue
 
         dr = force_driver if force_driver else ("Önal" if "önal" in s_part.lower() or "ünal" in s_part.lower() else "Salih" if "salih" in s_part.lower() else "Hasib" if "hasib" in s_part.lower() else None)
-        if not dr: continue
+        if not dr: 
+            continue
+
+        # SODA İŞLERİNİ KÖKTEN KİLİTLEME VE YOKSAYMA FİLTRESİ
+        if "soda" in msg_lower or "sodaya" in msg_lower or "sodadan" in msg_lower:
+            soda_modu[dr] = True
+            continue
+            
+        # Eğer şoför başka bir depoya geçiş sinyali verdiyse soda modundan çıkar
+        if any(k in msg_lower for k in DEPO_MESAFELERI.keys() if k != "soda"):
+            soda_modu[dr] = False
+
+        # Şoför aktif olarak soda işindeyse veya mesaj soda içeriyorsa bu satırı tamamen ATLA
+        if soda_modu[dr]:
+            continue
+
+        # Akıllı Depo ve Yük Tespiti
+        for k in DEPO_MESAFELERI.keys():
+            if k in msg_lower:
+                son_depo = k
+                break
+        
+        if "boş" in msg_lower: 
+            son_yuk = "boş"
+        elif "dolu" in msg_lower or "dolusu" in msg_lower: 
+            son_yuk = "dolu"
+
+        if not any(x in msg_lower for x in ["<medya", "görsel", "teslim", "edildi", "ettim", "yüklendi", "alındı"]):
+            continue
 
         if son_zaman[dr] and (dt - son_zaman[dr]).total_seconds() / 60 < 60:
             continue
         son_zaman[dr] = dt
 
         f_key = f"{son_depo}_{son_yuk}"
-        if "kahraman" in satir.lower() and "boş" in satir.lower(): f_key = "kahramanli_ardep_boş"
-        elif "ardep" in satir.lower() and "gts" in satir.lower() and "emanet" in satir.lower(): f_key = "ardep_gts_emanet_dolu"
-        elif "ardep" in satir.lower() and "emanet" in satir.lower(): f_key = "ardep_emanet_dolu"
-        elif "oyak" in satir.lower(): f_key = "oyak_depo_dolusu"
+        if "kahraman" in msg_lower and "boş" in msg_lower: f_key = "kahramanli_ardep_boş"
+        elif "ardep" in msg_lower and "gts" in msg_lower and "emanet" in msg_lower: f_key = "ardep_gts_emanet_dolu"
+        elif "ardep" in msg_lower and "emanet" in msg_lower: f_key = "ardep_emanet_dolu"
+        elif "oyak" in msg_lower: f_key = "oyak_depo_dolusu"
 
-        matrah = DEPO_FIYATLARI.get(f_key, 2500.0)
-        km = DEPO_MESAFELERI.get(son_depo, 8.0)
-        liters = calculate_real_consumption(km, (son_yuk == "dolu"), dt)
+        if fiyat_key := f_key if f_key in DEPO_FIYATLARI else "gts_dolu":
+            matrah = DEPO_FIYATLARI.get(fiyat_key, 2500.0)
+            km = DEPO_MESAFELERI.get(son_depo, 8.0)
+            liters = calculate_real_consumption(km, (son_yuk == "dolu"), dt)
 
-        seferler.append({
-            "Şoför": dr, "dt_obj": dt, "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
-            "Hafta": get_custom_operational_week(dt),
-            "Güzergah": f_key.upper().replace("_", " "), "KM": km, "Litre": liters,
-            "Prim": 250.0 if is_normal_hour(dt) else 500.0, "Ciro": matrah * (1 + KDV_ORANI), "Depo_Kodu": son_depo
-        })
+            seferler.append({
+                "Şoför": dr, "dt_obj": dt, "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
+                "Hafta": get_custom_operational_week(dt),
+                "Güzergah": fiyat_key.upper().replace("_", " "), "KM": km, "Litre": liters,
+                "Prim": 250.0 if is_normal_hour(dt) else 500.0, "Ciro": matrah * (1 + KDV_ORANI), "Depo_Kodu": son_depo
+            })
+            
     return pd.DataFrame(seferler)
 
 st.set_page_config(page_title="Mersin Lojistik", layout="wide")
@@ -125,8 +152,6 @@ if dfs:
             else:
                 bk_km.append(0.0); bk_l.append(0.0); bk_note.append("Şoför Değişimi")
         df["Boş_KM"], df["Boş_Litre"], df["Not"] = bk_km, bk_l, bk_note
-        
-        # Gerçek sefer kârlılığını görmek için toplam yakıt hanesine sal kasa boş dönüş litresini ekle
         df["Toplam_Litre"] = df["Litre"] + df["Boş_Litre"]
 
         günler = max(1, (df["dt_obj"].max() - df["dt_obj"].min()).days)
@@ -145,7 +170,6 @@ if dfs:
         with t1:
             st.dataframe(df.pivot_table(index="Hafta", columns="Şoför", values="Prim", aggfunc="sum").fillna(0), use_container_width=True)
         with t2:
-            # KRİTİK GÜNCELLEME: Güzergah analizinde toplam yakıt (sefer + sal kasa dönüşü) baz alındı
             g = df.groupby("Güzergah").agg(Sefer=("Şoför", "count"), Ciro=("Ciro", "sum"), Prim=("Prim", "sum"), L=("Toplam_Litre", "sum")).reset_index()
             g["Net_Kar"] = g["Ciro"] - g["Prim"] - (g["L"] * litre_fiyat)
             g["Sefer_Başı_Kar"] = g["Net_Kar"] / g["Sefer"]
