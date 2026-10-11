@@ -42,8 +42,6 @@ def parse_single_source(text_content, force_driver=None):
     satirlar = text_content.replace("\x00", "").replace("\ufeff", "").split("\n")
     son_depo, son_yuk = "gts", "dolu"
     son_zaman = {"Önal": None, "Salih": None, "Hasib": None}
-
-    # Soda tespit edilirse o şoförün o anki tüm hafızasını sıfırlamak için kilit mekanizması
     soda_modu = {"Önal": False, "Salih": False, "Hasib": False}
 
     for satir in satirlar:
@@ -65,29 +63,24 @@ def parse_single_source(text_content, force_driver=None):
         if not dr: 
             continue
 
-        # SODA İŞLERİNİ KÖKTEN KİLİTLEME VE YOKSAYMA FİLTRESİ
-        if "soda" in msg_lower or "sodaya" in msg_lower or "sodadan" in msg_lower:
+        # HARF DUYARLILIĞI ARINDIRILMIŞ SODA KİLİTLEME FİLTRESİ
+        if "soda" in satir_lower or "sodaya" in satir_lower or "sodadan" in satir_lower:
             soda_modu[dr] = True
             continue
             
-        # Eğer şoför başka bir depoya geçiş sinyali verdiyse soda modundan çıkar
-        if any(k in msg_lower for k in DEPO_MESAFELERI.keys() if k != "soda"):
+        if any(k in msg_lower for k in DEPO_MESAFELERI.keys()):
             soda_modu[dr] = False
 
-        # Şoför aktif olarak soda işindeyse veya mesaj soda içeriyorsa bu satırı tamamen ATLA
         if soda_modu[dr]:
             continue
 
-        # Akıllı Depo ve Yük Tespiti
         for k in DEPO_MESAFELERI.keys():
             if k in msg_lower:
                 son_depo = k
                 break
         
-        if "boş" in msg_lower: 
-            son_yuk = "boş"
-        elif "dolu" in msg_lower or "dolusu" in msg_lower: 
-            son_yuk = "dolu"
+        if "boş" in msg_lower: son_yuk = "boş"
+        elif "dolu" in msg_lower or "dolusu" in msg_lower: son_yuk = "dolu"
 
         if not any(x in msg_lower for x in ["<medya", "görsel", "teslim", "edildi", "ettim", "yüklendi", "alındı"]):
             continue
@@ -102,17 +95,17 @@ def parse_single_source(text_content, force_driver=None):
         elif "ardep" in msg_lower and "emanet" in msg_lower: f_key = "ardep_emanet_dolu"
         elif "oyak" in msg_lower: f_key = "oyak_depo_dolusu"
 
-        if fiyat_key := f_key if f_key in DEPO_FIYATLARI else "gts_dolu":
-            matrah = DEPO_FIYATLARI.get(fiyat_key, 2500.0)
-            km = DEPO_MESAFELERI.get(son_depo, 8.0)
-            liters = calculate_real_consumption(km, (son_yuk == "dolu"), dt)
+        fiyat_key = f_key if f_key in DEPO_FIYATLARI else "gts_dolu"
+        matrah = DEPO_FIYATLARI.get(fiyat_key, 2500.0)
+        km = DEPO_MESAFELERI.get(son_depo, 8.0)
+        liters = calculate_real_consumption(km, (son_yuk == "dolu"), dt)
 
-            seferler.append({
-                "Şoför": dr, "dt_obj": dt, "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
-                "Hafta": get_custom_operational_week(dt),
-                "Güzergah": fiyat_key.upper().replace("_", " "), "KM": km, "Litre": liters,
-                "Prim": 250.0 if is_normal_hour(dt) else 500.0, "Ciro": matrah * (1 + KDV_ORANI), "Depo_Kodu": son_depo
-            })
+        seferler.append({
+            "Şoför": dr, "dt_obj": dt, "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
+            "Hafta": get_custom_operational_week(dt),
+            "Güzergah": fiyat_key.upper().replace("_", " "), "KM": km, "Litre": liters,
+            "Prim": 250.0 if is_normal_hour(dt) else 500.0, "Ciro": matrah * (1 + KDV_ORANI), "Depo_Kodu": son_depo
+        })
             
     return pd.DataFrame(seferler)
 
