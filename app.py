@@ -2,10 +2,8 @@ import datetime
 import pandas as pd
 import streamlit as st
 
-# --- SAF MERSİN LİMAN AKTARMA PARAMETRELERİ (KDV %16) ---
 KDV_ORANI = 0.16
 
-# 15 Eylül İtibariyle Geçerli Güncel Matrah Fiyat Listesi
 DEPO_FIYATLARI = {
     "ardep_dolu": 2000.0,
     "ardep_boş": 1900.0,
@@ -31,7 +29,6 @@ DEPO_FIYATLARI = {
     "oyak_depo_dolusu": 1700.0
 }
 
-# Güzergah Mesafe Verileri (A Noktası -> B Noktası Liman)
 DEPO_MESAFELERI = {
     "gts": 8.0,
     "ardep": 6.0,
@@ -46,7 +43,6 @@ DEPO_MESAFELERI = {
     "oyak": 12.0
 }
 
-# Şehiriçi Trafik ve Tonaj Tüketim Modellemesi
 BASE_CONSUMPTION_EMPTY = 0.38  
 BASE_CONSUMPTION_LOADED = 0.57  
 
@@ -76,7 +72,6 @@ def get_custom_operational_week(dt):
     return f"{monday_08.strftime('%d/%m')} ➡️ {sunday_08_end.strftime('%d/%m')} Haftası"
 
 def parse_single_source(text_content, force_driver=None):
-    """Herhangi bir metin dökümünü esnek şekilde okur ve analiz listesine çevirir."""
     seferler_list = []
     text_content = text_content.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
     satirlar = text_content.split("\n")
@@ -113,7 +108,6 @@ def parse_single_source(text_content, force_driver=None):
         except:
             continue
 
-        # Eğer şahsi sohbet dökümüyse kimin yazdığını zorunlu kılabiliriz
         if force_driver:
             driver_name = force_driver
         else:
@@ -166,8 +160,6 @@ def parse_single_source(text_content, force_driver=None):
 
     return pd.DataFrame(seferler_list)
 
-
-# --- STREAMLIT PC PANEL TASARIMI ---
 st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
 st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
 st.caption("3 Kanallı Teyitli Akıllı Veri Okuma Paneli")
@@ -178,7 +170,7 @@ manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot
 depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
 
 st.sidebar.markdown("---")
-st.sidebar.header("🚛 Filo Gider Ayarları")
+st.sidebar.header("Consultant Gider Ayarları")
 aktif_arac_sayisi = st.sidebar.number_input("Şu Anda Aktif Çalışan Tır Sayısı", min_value=1, max_value=3, value=2)
 
 GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
@@ -208,12 +200,9 @@ if onal_file is not None:
     all_dataframes.append(parse_single_source(onal_file.read().decode("utf-8", errors="ignore"), force_driver="Önal"))
 
 if all_dataframes:
-    # Tüm kaynakları birleştir
     df_combined = pd.concat(all_dataframes, ignore_index=True)
     
     if not df_combined.empty:
-        # --- AKILLI MÜKERRER TEMİZLEME MOTORU ---
-        # Aynı şoförün 60 dakika (1 saat) içindeki tüm kayıtlarını (ister gruptan ister özelden gelsin) TEK SEFER sayar
         df_combined = df_combined.sort_values(by=["Şoför", "dt_object"]).reset_index(drop=True)
         
         filtered_rows = []
@@ -235,16 +224,15 @@ if all_dataframes:
         
         st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi ve {len(df)} adet net benzersiz sefer listelendi.")
 
-        # --- DÖNEM GÜN SAYISI BULMA ---
         df["dt_object"] = pd.to_datetime(df["dt_object"])
         min_date = df["dt_object"].min()
         max_date = df["dt_object"].max()
         gun_sayisi = (max_date - min_date).days
-        if gun_sayisi < 1: gun_sayisi = 1  
+        if gun_sayisi < 1: 
+            gun_sayisi = 1  
             
         donemlik_sabit_gider_payi = TOPLAM_SIRKET_GUNLUK_GIDERI * gun_sayisi
 
-        # --- ÜST ÖZET FINANSAL KARTLAR ---
         total_ciro = df["Sefer Cirosu (TL)"].sum()
         total_prim = df["Şoför Primi (TL)"].sum()
         
@@ -253,3 +241,12 @@ if all_dataframes:
         net_sirket_kari = total_ciro - total_prim - gercek_yakit_maliyeti - donemlik_sabit_gider_payi
 
         col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Toplam Brüt Ciro (KDV Dahil)", f"{total_ciro:,.2f} TL")
+        col2.metric("Toplam Şoför Primleri", f"{total_prim:,.2f} TL")
+        col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
+        col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
+
+        st.subheader("💵 Haftalık Şoför Prim Takip Ekranı")
+        df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
+        st.dataframe(df_weekly_pivot, use_container_width=True)
+
