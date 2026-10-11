@@ -222,7 +222,7 @@ if all_dataframes:
             
         df = pd.DataFrame(filtered_rows)
         
-        st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi ve {len(df)} adet net benzersiz sefer listelendi.")
+        st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi` ve {len(df)} adet net benzersiz sefer listelendi.")
 
         df["dt_object"] = pd.to_datetime(df["dt_object"])
         min_date = df["dt_object"].min()
@@ -246,7 +246,7 @@ if all_dataframes:
         col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
         col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
 
-        # --- YENİ SEKMELİ (TAB) TASARIM DÜZENİ ---
         tab1, tab2, tab3 = st.tabs(["💵 Haftalık Şoför Primleri", "🎯 Güzergah Kârlılık Karnesi", "📋 Sefer Sefer Detay Listesi"])
 
         with tab1:
+            df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
