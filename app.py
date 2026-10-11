@@ -68,6 +68,19 @@ def is_normal_hour(dt: datetime.datetime) -> bool:
         return datetime.time(8, 0) <= time_of_day <= datetime.time(13, 0)
     return False
 
+def get_custom_operational_week(dt):
+    """Pazartesi 08:00 ile bir sonraki Pazar 08:00 arasını lojistik haftası kabul eder."""
+    # O haftanın Pazartesi gününü bul
+    monday = dt - datetime.timedelta(days=dt.weekday())
+    monday_08 = datetime.datetime.combine(monday.date(), datetime.time(8, 0))
+    
+    # Eğer mevcut mesaj Pazartesi 08:00'den önceyse, bir önceki operasyonel haftaya aittir
+    if dt < monday_08:
+        monday_08 = monday_08 - datetime.timedelta(days=7)
+        
+    sunday_08_end = monday_08 + datetime.timedelta(days=6)
+    return f"{monday_08.strftime('%d/%m')} ➡️ {sunday_08_end.strftime('%d/%m')} Haftası"
+
 def parse_whatsapp_smart_analytics_v6(text_content):
     seferler_list = []
     text_content = text_content.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
@@ -154,6 +167,7 @@ def parse_whatsapp_smart_analytics_v6(text_content):
             "Şoför": driver_name,
             "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
             "dt_object": dt,
+            "Lojistik Haftası": get_custom_operational_week(dt),
             "Güzergah Hat Değeri": fiyat_key.upper().replace("_", " "),
             "Mesafe (KM)": km,
             "Hesaplanan Tüketim (Litre)": round(harcanan_litre, 2),
@@ -175,7 +189,7 @@ manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)"
 manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot (Litre)", min_value=0.0, value=979.0)
 depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
 
-# --- ARAÇ BAŞI YENİ SABIT GIDER HESAPLAMA MOTORU ---
+# --- ARAÇ BAŞI SABIT GIDER HESAPLAMA MOTORU ---
 GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
 AKTIF_ARAC_SAYISI = 2
 TOPLAM_SIRKET_GUNLUK_GIDERI = GUNLUK_SABIT_GIDER_PER_ARAC * AKTIF_ARAC_SAYISI
@@ -222,24 +236,16 @@ if whatsapp_file is not None:
         col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
         col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
 
-        # --- GÜZERGAH KÂRLILIK KARNESİ ---
-        st.subheader("🎯 Güzergah Bazlı Sefer Net Kâr Analizi")
+        # --- YENİ MODÜL: HAFTALIK ŞOFÖR PRİM TAKİP EKRANI ---
+        st.subheader("💵 Haftalık Şoför Prim Takip Ekranı")
+        st.caption("Pazartesi 08:00'den bir sonraki Pazar 08:00'e kadar olan dönemlik hakedişlerdir:")
         
-        df_group = df.groupby("Güzergah Hat Değeri").agg(
-            Sefer_Sayisi=("Şoför", "count"),
-            Toplam_Ciro=("Sefer Cirosu (TL)", "sum"),
-            Toplam_Prim=("Şoför Primi (TL)", "sum"),
-            Tahmini_Litre_Tuketimi=("Hesaplanan Tüketim (Litre)", "sum")
+        df_weekly = df.groupby(["Lojistik Haftası", "Şoför"]).agg(
+            Toplam_Sefer=("Güzergah Hat Değeri", "count"),
+            Toplam_Hakedis_Prim=("Şoför Primi (TL)", "sum")
         ).reset_index()
         
-        df_group["Modellenen Yakıt Maliyeti (TL)"] = df_group["Tahmini_Litre_Tuketimi"] * manuel_litre_fiyati
-        df_group["Net Bırakılan Kâr (TL)"] = df_group["Toplam_Ciro"] - df_group["Toplam_Prim"] - df_group["Modellenen Yakıt Maliyeti (TL)"]
-        df_group["Sefer Başı Ortalama Kâr (TL)"] = df_group["Net Bırakılan Kâr (TL)"] / df_group["Sefer_Sayisi"]
-        
-        df_group = df_group.sort_values(by="Sefer Başı Ortalama Kâr (TL)", ascending=False)
-        
-        st.dataframe(df_group[["Güzergah Hat Değeri", "Sefer_Sayisi", "Toplam_Ciro", "Net Bırakılan Kâr (TL)", "Sefer Başı Ortalama Kâr (TL)"]], use_container_width=True)
+        # Tabloyu daha şık ve scannable göstermek için yan yana pivot tablo biçimine çevirelim
+        df_weekly_pivot = df_weekly.pivot(index="Lojistik Haftası", columns="Şoför", values="Toplam_Hakedis_Prim").fillna(0)
+        st.dataframe(df_weekly_pivot, use_container_width=True)
 
-        # --- SEFER SEFER DETAY TABLOSU ---
-        st.subheader("📋 Sefer Sefer Detaylı Trafik ve Tüketim Analiz Listesi")
-        st.dataframe(df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Trafik Durumu", "Hesaplanan Tüketim (Litre)", "Şoför Primi (TL)", "Sefer Cirosu (TL)"]], use_container_width=True, height=500)
