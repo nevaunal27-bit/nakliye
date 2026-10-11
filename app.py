@@ -2,9 +2,7 @@ import datetime
 import pandas as pd
 import streamlit as st
 
-# --- SAF MERSİN LİMAN AKTARMA PARAMETRELERİ (KDV %16) ---
 KDV_ORANI = 0.16
-
 DEPO_FIYATLARI = {
     "ardep_dolu": 2000.0, "ardep_boş": 1900.0, "kahramanli_ardep_boş": 1950.0,
     "demireller_dolu": 2300.0, "demireller_boş": 2100.0, "falcon_dolu": 2100.0,
@@ -14,267 +12,131 @@ DEPO_FIYATLARI = {
     "ccis_dolu": 2200.0, "ccis_boş": 1950.0, "sabanci_dolu": 2200.0, "sabanci_boş": 1950.0,
     "ardep_emanet_dolu": 1650.0, "oyak_depo_dolusu": 1700.0
 }
-
 DEPO_MESAFELERI = {
     "gts": 8.0, "ardep": 6.0, "kahramanli": 8.5, "ccis": 9.0, "ciss": 9.0,
     "demirel": 7.0, "falcon": 7.0, "medlog": 7.5, "ols": 10.0, "sabanci": 11.0, "oyak": 12.0
 }
 
-# --- YAKIT TÜKETİM MODELİ ---
-BASE_CONSUMPTION_EMPTY = 0.38   # Tamamen boş sal kasa veya boş konteynır: 100 KM'de 38 Litre
-BASE_CONSUMPTION_LOADED = 0.57  # Dolu tır (24-25 Ton Ağır Yük): 100 KM'de 57 Litre
-
 def calculate_real_consumption(distance, is_loaded, dt):
-    base_rate = BASE_CONSUMPTION_LOADED if is_loaded else BASE_CONSUMPTION_EMPTY
-    if 8 <= dt.hour <= 18:
-        traffic_multiplier = 1.45  # Gündüz liman içi dur-kalk ve rölanti sırası
-    else:
-        traffic_multiplier = 1.00  # Gece akıcı trafik
-    return distance * base_rate * traffic_multiplier
+    rate = 0.57 if is_loaded else 0.38
+    traffic = 1.45 if 8 <= dt.hour <= 18 else 1.00
+    return distance * rate * traffic
 
-def is_normal_hour(dt: datetime.datetime) -> bool:
-    weekday = dt.weekday()
-    time_of_day = dt.time()
-    if 0 <= weekday <= 4:
-        return datetime.time(8, 0) <= time_of_day <= datetime.time(18, 0)
-    elif weekday == 5:
-        return datetime.time(8, 0) <= time_of_day <= datetime.time(13, 0)
+def is_normal_hour(dt):
+    if dt.weekday() <= 4:
+        return datetime.time(8, 0) <= dt.time() <= datetime.time(18, 0)
+    elif dt.weekday() == 5:
+        return datetime.time(8, 0) <= dt.time() <= datetime.time(13, 0)
     return False
 
-def get_custom_operational_week(dt):
-    monday = dt - datetime.timedelta(days=dt.weekday())
-    monday_08 = datetime.datetime.combine(monday.date(), datetime.time(8, 0))
-    if dt < monday_08:
-        monday_08 = monday_08 - datetime.timedelta(days=7)
-    sunday_08_end = monday_08 + datetime.timedelta(days=6)
-    return f"{monday_08.strftime('%d/%m')} ➡️ {sunday_08_end.strftime('%d/%m')} Haftası"
-
 def parse_single_source(text_content, force_driver=None):
-    seferler_list = []
-    text_content = text_content.replace("\x00", "").replace("\ufeff", "").replace("\r", "")
-    satirlar = text_content.split("\n")
-
-    son_depo_tahmini = "gts"
-    son_yuk_durumu = "dolu"
+    seferler = []
+    satirlar = text_content.replace("\x00", "").replace("\ufeff", "").split("\n")
+    son_depo, son_yuk = "gts", "dolu"
+    son_zaman = {"Önal": None, "Salih": None, "Hasib": None}
 
     for satir in satirlar:
         satir = satir.strip()
-        if not satir or " - " not in satir or ":" not in satir:
+        if not satir or " - " not in satir or ":" not in satir or "soda" in satir.lower():
             continue
-
-        satir_lower = satir.lower()
-        if "soda" in satir_lower:
-            continue
-
-        for depo_anahtar in DEPO_MESAFELERI.keys():
-            if depo_anahtar in satir_lower:
-                son_depo_tahmini = depo_anahtar
+        for k in DEPO_MESAFELERI.keys():
+            if k in satir.lower():
+                son_depo = k
                 break
-        
-        if "boş" in satir_lower:
-            son_yuk_durumu = "boş"
-        elif "dolu" in satir_lower or "dolusu" in satir_lower:
-            son_yuk_durumu = "dolu"
+        if "boş" in satir.lower(): son_yuk = "boş"
+        elif "dolu" in satir.lower() or "dolusu" in satir_lower: son_yuk = "dolu"
 
-        is_action = any(x in satir_lower for x in ["<medya dahil edilmedi>", "görsel", "teslim", "edildi", "ettim", "çıkış yaptım"])
-        if not is_action:
+        if not any(x in satir.lower() for x in ["<medya", "görsel", "teslim", "edildi", "ettim"]):
             continue
-
         try:
-            timestamp_part, remainder = satir.split(" - ", 1)
-            sender_part, _ = remainder.split(":", 1)
+            t_part, r_part = satir.split(" - ", 1)
+            s_part, _ = r_part.split(":", 1)
+            dt = datetime.datetime.strptime(t_part.replace("[", "").replace("]", "").strip(), "%d.%m.%Y %H:%M")
         except:
             continue
 
-        if force_driver:
-            driver_name = force_driver
-        else:
-            sender_lower = sender_part.lower()
-            driver_name = ""
-            if "önal" in sender_lower or "ünal" in sender_lower: driver_name = "Önal"
-            elif "salih" in sender_lower: driver_name = "Salih"
-            elif "hasib" in sender_lower or "selahattin" in sender_lower: driver_name = "Hasib"
+        dr = force_driver if force_driver else ("Önal" if "önal" in s_part.lower() or "ünal" in s_part.lower() else "Salih" if "salih" in s_part.lower() else "Hasib" if "hasib" in s_part.lower() else None)
+        if not dr: continue
 
-        if not driver_name:
+        if son_zaman[dr] and (dt - son_zaman[dr]).total_seconds() / 60 < 60:
             continue
+        son_zaman[dr] = dt
 
-        try:
-            timestamp_clean = timestamp_part.replace("[", "").replace("]", "").strip()
-            dt = datetime.datetime.strptime(timestamp_clean, "%d.%m.%Y %H:%M")
-        except:
-            continue
+        f_key = f"{son_depo}_{son_yuk}"
+        if "kahraman" in satir.lower() and "boş" in satir.lower(): f_key = "kahramanli_ardep_boş"
+        elif "ardep" in satir.lower() and "gts" in satir.lower() and "emanet" in satir.lower(): f_key = "ardep_gts_emanet_dolu"
+        elif "ardep" in satir.lower() and "emanet" in satir.lower(): f_key = "ardep_emanet_dolu"
+        elif "oyak" in satir.lower(): f_key = "oyak_depo_dolusu"
 
-        fiyat_key = f"{son_depo_tahmini}_{son_yuk_durumu}"
-        if "kahraman" in satir_lower and "boş" in satir_lower: fiyat_key = "kahramanli_ardep_boş"
-        elif "ardep" in satir_lower and "gts" in satir_lower and "emanet" in satir_lower: fiyat_key = "ardep_gts_emanet_dolu"
-        elif "ardep" in satir_lower and "emanet" in satir_lower: fiyat_key = "ardep_emanet_dolu"
-        elif "oyak" in satir_lower: fiyat_key = "oyak_depo_dolusu"
+        matrah = DEPO_FIYATLARI.get(f_key, 2500.0)
+        km = DEPO_MESAFELERI.get(son_depo, 8.0)
+        liters = calculate_real_consumption(km, (son_yuk == "dolu"), dt)
 
-        if fiyat_key not in DEPO_FIYATLARI:
-            fiyat_key = "gts_dolu"
-
-        is_normal = is_normal_hour(dt)
-        final_premium = float(250 if is_normal else 500)
-        
-        km = DEPO_MESAFELERI.get(son_depo_tahmini, 8.0)
-        is_loaded_bool = (son_yuk_durumu == "dolu")
-        harcanan_litre = calculate_real_consumption(km, is_loaded_bool, dt)
-        
-        matrah = DEPO_FIYATLARI[fiyat_key]
-        brut_ciro = matrah * (1 + KDV_ORANI)
-
-        seferler_list.append({
-            "Şoför": driver_name,
-            "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
-            "dt_object": dt,
-            "Lojistik Haftası": get_custom_operational_week(dt),
-            "Güzergah Hat Değeri": fiyat_key.upper().replace("_", " "),
-            "Depo_Kodu": son_depo_tahmini,
-            "Yük_Durumu_Kodu": son_yuk_durumu,
-            "Mesafe (KM)": km,
-            "Hesaplanan Tüketim (Litre)": round(harcanan_litre, 2),
-            "Şoför Primi (TL)": final_premium,
-            "Sefer Cirosu (TL)": brut_ciro,
-            "Trafik Durumu": "Gündüz (Yoğun Trafik)" if (8 <= dt.hour <= 18) else "Gece / Akşam (Akıcı)"
+        seferler.append({
+            "Şoför": dr, "dt_obj": dt, "Tarih / Saat": dt.strftime("%d/%m/%Y %H:%M"),
+            "Hafta": f"{(dt - datetime.timedelta(days=dt.weekday())).strftime('%d/%m')} Haftası",
+            "Güzergah": f_key.upper().replace("_", " "), "KM": km, "Litre": liters,
+            "Prim": 250.0 if is_normal_hour(dt) else 500.0, "Ciro": matrah * (1 + KDV_ORANI), "Depo_Kodu": son_depo
         })
+    return pd.DataFrame(seferler)
 
-    return pd.DataFrame(seferler_list)
+st.set_page_config(page_title="Mersin Lojistik", layout="wide")
+st.title("📊 Mersin Şehiriçi Konteynır Karlılık Analiz Motoru")
 
+st.sidebar.header("⛽ Girişler")
+litre_fiyat = st.sidebar.number_input("Mazot Litre Fiyatı (TL)", value=86.50)
+alinan_litre = st.sidebar.number_input("Alınan Mazot (Litre)", value=979.0)
+kalan_litre = st.sidebar.number_input("Depoda Kalan Mazot (Litre)", value=250.0)
+aktif_tırs = st.sidebar.number_input("Aktif Tır Sayısı", min_value=1, value=2)
 
-# --- STREAMLIT PANEL TASARIMI ---
-st.set_page_config(page_title="Mersin Liman İçi Aktarma Analitiği", layout="wide")
-st.title("📊 Mersin Şehiriçi Konteynır Karlılık & Verimlilik Analiz Motoru")
-st.caption("Sal Kasa Boş Kilometre ve Teyitli Çift Kanal Analiz Sistemi")
+gün_gideri = (((82000 + 200000) / 365) + (54000 / 30)) * aktif_tırs
+st.sidebar.write(f"Günlük Toplam Sabit Gider: **{gün_gideri:,.2f} TL**")
 
-st.sidebar.header("⛽ Hassas Yakıt Girişleri")
-manuel_litre_fiyati = st.sidebar.number_input("Güncel Mazot Litre Fiyatı (TL)", min_value=0.0, value=86.50)
-manuel_alinan_litre = st.sidebar.number_input("Dönem İçi Toplam Alınan Mazot (Litre)", min_value=0.0, value=979.0)
-depodaki_mevcut_litre = st.sidebar.number_input("Şu Anda Çekicilerin Deposunda Kalan Yakıt (Litre)", min_value=0.0, value=250.0)
+col_a, col_b, col_c = st.columns(3)
+with col_a: grup_f = st.file_uploader("1. Grup Dökümü (.txt)", type=["txt"])
+with col_b: salih_f = st.file_uploader("2. Salih Özel (.txt)", type=["txt"])
+with col_c: onal_f = st.file_uploader("3. Önal Özel (.txt)", type=["txt"])
 
-st.sidebar.markdown("---")
-st.sidebar.header("🚛 Filo Gider Ayarları")
-aktif_arac_sayisi = st.sidebar.number_input("Şu Anda Aktif Çalışan Tır Sayısı", min_value=1, max_value=3, value=2)
+dfs = []
+if grup_f: dfs.append(parse_single_source(grup_f.read().decode("utf-8", errors="ignore")))
+if salih_f: dfs.append(parse_single_source(salih_f.read().decode("utf-8", errors="ignore"), "Salih"))
+if onal_f: dfs.append(parse_single_source(onal_f.read().decode("utf-8", errors="ignore"), "Önal"))
 
-GUNLUK_SABIT_GIDER_PER_ARAC = ((82000 + 200000) / 365) + ((42000 + 12000) / 30)
-TOPLAM_SIRKET_GUNLUK_GIDERI = GUNLUK_SABIT_GIDER_PER_ARAC * aktif_arac_sayisi
+if dfs:
+    df = pd.concat(dfs, ignore_index=True).sort_values("dt_obj").drop_duplicates(subset=["Şoför", "Tarih / Saat"]).reset_index(drop=True)
+    if not df.empty:
+        bk_km, bk_l, bk_note = [0.0], [0.0], ["Başlangıç"]
+        for i in range(1, len(df)):
+            r, p = df.iloc[i], df.iloc[i - 1]
+            if r["Şoför"] == p["Şoför"]:
+                k = DEPO_MESAFELERI.get(r["Depo_Kodu"], 8.0)
+                bk_km.append(k)
+                bk_l.append(round(calculate_real_consumption(k, False, r["dt_obj"]), 2))
+                bk_note.append(f"Liman'dan {r['Depo_Kodu'].upper()} Deposuna Sal Kasa Boş Dönüş")
+            else:
+                bk_km.append(0.0); bk_l.append(0.0); bk_note.append("Şoför Değişimi")
+        df["Boş_KM"], df["Boş_Litre"], df["Not"] = bk_km, bk_l, bk_note
+        df["Litre"] = df["Litre"] + df["Boş_Litre"]
 
-st.sidebar.subheader("📅 Gün Bazlı Gider Bilgisi")
-st.sidebar.write(f"Araç Başı Günlük Gider: **{GUNLUK_SABIT_GIDER_PER_ARAC:,.2f} TL**")
-st.sidebar.write(f"{aktif_arac_sayisi} Araç Toplam Günlük Gider: **{TOPLAM_SIRKET_GUNLUK_GIDERI:,.2f} TL**")
+        günler = max(1, (df["dt_obj"].max() - df["dt_obj"].min()).days)
+        gider_payi = gün_gideri * günler
+        ciro, prim = df["Ciro"].sum(), df["Prim"].sum()
+        yakit = (alinan_litre - kalan_litre) * litre_fiyat
+        net_kar = ciro - prim - yakit - gider_payi
 
-st.subheader("📂 Akıllı Veri Giriş Kaynakları (3 Farklı Kanal)")
-col_a, colb, colc = st.columns(3)
+        c1, c2, col3, c4 = st.columns(4)
+        c1.metric("Toplam Ciro (KDV Dahil)", f"{ciro:,.2f} TL")
+        c2.metric("Toplam Şoför Primleri", f"{prim:,.2f} TL")
+        col3.metric("Gerçek Yakıt Maliyeti", f"{yakit:,.2f} TL", f"{alinan_litre - kalan_litre} L Harcandı")
+        c4.metric("Şirket Net Kârı", f"{net_sirket_kari := net_kar:,.2f} TL", f"{günler} Günlük Sabit Gider Düşüldü")
 
-with col_a:
-    grup_file = st.file_uploader("1. Ana Lojistik Grubu Dökümü (.txt)", type=["txt"], key="src_grup")
-with colb:
-    salih_file = st.file_uploader("2. Şoför Salih Özel Sohbeti (.txt)", type=["txt"], key="src_salih")
-with colc:
-    onal_file = st.file_uploader("3. Şoför Önal Özel Sohbeti (.txt)", type=["txt"], key="src_onal")
-
-all_dataframes = []
-
-if grup_file is not None:
-    all_dataframes.append(parse_single_source(grup_file.read().decode("utf-8", errors="ignore")))
-if salih_file is not None:
-    all_dataframes.append(parse_single_source(salih_file.read().decode("utf-8", errors="ignore"), force_driver="Salih"))
-if onal_file is not None:
-    all_dataframes.append(parse_single_source(onal_file.read().decode("utf-8", errors="ignore"), force_driver="Önal"))
-
-if all_dataframes:
-    df_combined = pd.concat(all_dataframes, ignore_index=True)
-    
-    if not df_combined.empty:
-        df_combined = df_combined.sort_values(by=["Şoför", "dt_object"]).reset_index(drop=True)
-        
-        filtered_rows = []
-        son_sefer_zamani = {"Önal": None, "Salih": None, "Hasib": None}
-        
-        for idx, row in df_combined.iterrows():
-            d_name = row["Şoför"]
-            dt_curr = row["dt_object"]
-            
-            if son_sefer_zamani[d_name] is not None:
-                diff_minutes = (dt_curr - son_sefer_zamani[d_name]).total_seconds() / 60
-                if diff_minutes < 60:
-                    continue
-                    
-            son_sefer_zamani[d_name] = dt_curr
-            filtered_rows.append(row)
-            
-        df = pd.DataFrame(filtered_rows)
-        
-        # --- 🚀 SAL KASA / ARKA ARKAYA SEFERLER ARASI MESAFE KONTROL MOTORU 🚀 ---
-        df = df.sort_values(by=["Şoför", "dt_object"]).reset_index(drop=True)
-        
-        sal_kasa_mesafeleri = []
-        sal_kasa_yakitlari = []
-        sal_kasa_aciklamalari = []
-        
-        for idx, row in df.iterrows():
-            if idx == 0:
-                sal_kasa_mesafeleri.append(0.0)
-                sal_kasa_yakitlari.append(0.0)
-                sal_kasa_aciklamalari.append("Dönem Başlangıcı")
-                continue
-            
-            prev_row = df.iloc[idx - 1]
-            
-            # Eğer bir önceki kayıt aynı şoföre aitse ve her iki iş de LİMAN varışlı ise (Depodan Limana)
-            # Bu durum şoförün limana yük bıraktıktan sonra yeni yük için depoya boş dorse / sal kasa gittiğini kanıtlar
-            if row["Şoför"] == prev_row["Şoför"]:
-                # Liman teslimatından sonra, yeni işin deposuna geri dönüş boş KM maliyeti hesaplanır
-                geri_donus_km = DEPO_MESAFELERI.get(row["Depo_Kodu"], 8.0)
-                # Boş sal kasa gitme yakıtı hesaplanır (Yük durumu=False)
-                sal_kasa_litre = calculate_real_consumption(geri_donus_km, False, row["dt_object"])
-                
-                sal_kasa_mesafeleri.append(geri_donus_km)
-sal_kasa_yakitlari.append(round(sal_kasa_litre, 2))
-sal_kasa_aciklamalari.append(f"Liman'dan {row['Depo_Kodu'].upper()} Deposuna Konteynırsız Boş Dönüş")
-else:
-sal_kasa_mesafeleri.append(0.0)
-sal_kasa_yakitlari.append(0.0)
-sal_kasa_aciklamalari.append("Şoför Değişimi veya İlk Sefer")
-df["Sal Kasa Boş KM"] = sal_kasa_mesafeleri
-df["Sal Kasa Boş Yakıt (Litre)"] = sal_kasa_yakitlari
-df["Sefer Detay Notu"] = sal_kasa_aciklamalari
-# Toplam Tüketim Değerlerini Güncelle (Sefer İçi + Sefer Arası Boş Dönüş Yakıtı)
-df["Hesaplanan Tüketim (Litre)"] = df["Hesaplanan Tüketim (Litre)"] + df["Sal Kasa Boş Yakıt (Litre)"]
-st.success(f"✅ Teyit Senkronizasyonu Başarılı! 3 kanaldan gelen veriler filtrelendi ve {len(df)} adet net benzersiz sefer listelendi.")
-df["dt_object"] = pd.to_datetime(df["dt_object"])
-min_date = df["dt_object"].min()
-max_date = df["dt_object"].max()
-gun_sayisi = (max_date - min_date).days
-if gun_sayisi < 1:
-gun_sayisi = 1
-donemlik_sabit_gider_payi = TOPLAM_SIRKET_GUNLUK_GIDERI * gun_sayisi
-total_ciro = df["Sefer Cirosu (TL)"].sum()
-total_prim = df["Şoför Primi (TL)"].sum()
-gercek_tuketilen_yakit = manuel_alinan_litre - depodaki_mevcut_litre
-gercek_yakit_maliyeti = gercek_tuketilen_yakit * manuel_litre_fiyati
-net_sirket_kari = total_ciro - total_prim - gercek_yakit_maliyeti - donemlik_sabit_gider_payi
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Toplam Brüt Ciro (KDV Dahil)", f"{total_ciro:,.2f} TL")
-col2.metric("Toplam Şoför Primleri", f"{total_prim:,.2f} TL")
-col3.metric("Gerçek Yakıt Maliyeti", f"{gercek_yakit_maliyeti:,.2f} TL", f"{gercek_tuketilen_yakit:,.1f} L Sarfiyat")
-col4.metric("Şirket Net Kârı", f"{net_sirket_kari:,.2f} TL", f"{gun_sayisi} Günlük Gider Dağıtıldı (-{donemlik_sabit_gider_payi:,.2f} TL)")
-tab1, tab2, tab3 = st.tabs(["💵 Haftalık Şoför Primleri", "🎯 Güzergah Kârlılık Karnesi", "📋 Sefer Sefer Detay Listesi"])
-with tab1:
-df_weekly_pivot = df.pivot_table(index="Lojistik Haftası", columns="Şoför", values="Şoför Primi (TL)", aggfunc="sum").fillna(0)
-st.dataframe(df_weekly_pivot, use_container_width=True)
-with tab2:
-df_group = df.groupby("Güzergah Hat Değeri").agg(
-Sefer_Sayisi=("Şoför", "count"),
-Toplam_Ciro=("Sefer Cirosu (TL)", "sum"),
-Toplam_Prim=("Şoför Primi (TL)", "sum"),
-Tahmini_Litre_Tuketimi=("Hesaplanan Tüketim (Litre)", "sum")
-).reset_index()
-df_group["Modellenen Yakıt Maliyeti (TL)"] = df_group["Tahmini_Litre_Tuketimi"] * manuel_litre_fiyati
-df_group["Net Bırakılan Kâr (TL)"] = df_group["Toplam_Ciro"] - df_group["Toplam_Prim"] - df_group["Modellenen Yakıt Maliyeti (TL)"]
-df_group["Sefer Başı Ortalama Kâr (TL)"] = df_group["Net Bırakılan Kâr (TL)"] / df_group["Sefer_Sayisi"]
-df_group = df_group.sort_values(by="Sefer Başı Ortalama Kâr (TL)", ascending=False)
-st.dataframe(df_group[["Güzergah Hat Değeri", "Sefer_Sayisi", "Toplam_Ciro", "Net Bırakılan Kâr (TL)", "Sefer Başı Ortalama Kâr (TL)"]], use_container_width=True)
-with tab3:
-st.dataframe(df[["Şoför", "Tarih / Saat", "Güzergah Hat Değeri", "Sal Kasa Boş KM", "Sal Kasa Boş Yakıt (Litre)", "Hesaplanan Tüketim (Litre)", "Sefer Detay Notu", "Sefer Cirosu (TL)"]], use_container_width=True, height=500)
-else:
-st.error("Yüklenen dosyalarda geçerli bir nakliye güzergahı bulunamadı.")
+        t1, t2, t3 = st.tabs(["💵 Haftalık Primler", "🎯 Güzergah Kârlılığı", "📋 Sefer Detayları"])
+        with t1:
+            st.dataframe(df.pivot_table(index="Hafta", columns="Şoför", values="Prim", aggfunc="sum").fillna(0), use_container_width=True)
+        with t2:
+            g = df.groupby("Güzergah").agg(Sefer=("Şoför", "count"), Ciro=("Ciro", "sum"), Prim=("Prim", "sum"), L=("Litre", "sum")).reset_index()
+            g["Net_Kar"] = g["Ciro"] - g["Prim"] - (g["L"] * litre_fiyat)
+            g["Sefer_Başı_Kar"] = g["Net_Kar"] / g["Sefer"]
+            st.dataframe(g.sort_values("Sefer_Başı_Kar", ascending=False), use_container_width=True)
+        with t3:
+            st.dataframe(df[["Şoför", "Tarih / Saat", "Güzergah", "Boş_KM", "Boş_Litre", "Litre", "Not", "Ciro"]], use_container_width=True, height=500)
